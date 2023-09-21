@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+
+#[derive(Debug)]
 pub enum Ops {
     Unary(UnaryOps),
     Binary(BinaryOps),
@@ -6,6 +9,7 @@ pub enum Ops {
     Load(LoadOps),
 }
 
+#[derive(Debug)]
 pub enum UnaryOps {
     Noop,
     Exp2,
@@ -17,6 +21,7 @@ pub enum UnaryOps {
     Neg,
 }
 
+#[derive(Debug)]
 pub enum BinaryOps {
     Add,
     Sub,
@@ -26,14 +31,20 @@ pub enum BinaryOps {
     Mod,
     CmpLt,
 }
+
+#[derive(Debug)]
 pub enum ReduceOps {
     Sum,
     Max,
 }
+
+#[derive(Debug)]
 pub enum TernaryOps {
     MulAcc,
     Where,
 }
+
+#[derive(Debug)]
 pub enum MovementOps {
     Reshape,
     Permute,
@@ -42,6 +53,8 @@ pub enum MovementOps {
     Shrink,
     Stride,
 }
+
+#[derive(Debug)]
 pub enum LoadOps {
     Empty,
     Rand,
@@ -51,7 +64,7 @@ pub enum LoadOps {
     Custom,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub enum Device {
     #[default]
     CPU,
