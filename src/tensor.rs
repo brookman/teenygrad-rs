@@ -3,13 +3,16 @@ use std::fmt::Debug;
 use ndarray::{ArrayBase, Dimension, OwnedRepr};
 
 use crate::lazy_buffer::LazyBuffer;
+use crate::ops::Device;
 
 #[derive(Debug, Default)]
 pub struct Tensor<D>
 where
     D: Dimension,
 {
+    pub device: Device,
     pub lazy_data: LazyBuffer<D>,
+    pub requires_grad: Option<bool>,
 }
 
 #[allow(dead_code)]
@@ -17,9 +20,17 @@ impl<D> Tensor<D>
 where
     D: Dimension,
 {
-    pub fn new(array: ArrayBase<OwnedRepr<f32>, D>) -> Self {
+    pub fn new(lazy_data: LazyBuffer<D>) -> Self {
+        Tensor {
+            lazy_data,
+            ..Default::default()
+        }
+    }
+
+    pub fn from_array(array: ArrayBase<OwnedRepr<f32>, D>) -> Self {
         Tensor {
             lazy_data: LazyBuffer::new(array),
+            ..Default::default()
         }
     }
 

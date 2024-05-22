@@ -1,83 +1,252 @@
-// # An instantiation of the Function is the Context
-// class Function:
-//   def __init__(self, device:str, *tensors:Tensor):
-//     self.device = device
-//     self.needs_input_grad = [t.requires_grad for t in tensors]
-//     self.requires_grad = True if any(self.needs_input_grad) else None if None in self.needs_input_grad else False
-//     if self.requires_grad: self.parents = tensors
+use crate::lazy_buffer::LazyBuffer;
+use crate::ops::{BinaryOps, Device, UnaryOps};
+use crate::tensor::Tensor;
+use ndarray::Dimension;
+use num_traits::FloatConst;
 
-//   def forward(self, *args, **kwargs): raise NotImplementedError(f"forward not implemented for {type(self)}")
-//   def backward(self, *args, **kwargs): raise RuntimeError(f"backward not implemented for {type(self)}")
+pub struct BaseFunction {
+    pub device: Device,
+    pub requires_grad: Option<bool>,
+}
 
-//   @classmethod
-//   def apply(fxn:Type[Function], *x:Tensor, **kwargs) -> Tensor:
-//     ctx = fxn(x[0].device, *x)
-//     ret = Tensor(ctx.forward(*[t.lazydata for t in x], **kwargs), device=ctx.device, requires_grad=ctx.requires_grad)
-//     if ctx.requires_grad and not Tensor.no_grad: ret._ctx = ctx    # used by autograd engine
-//     return ret
+pub struct UnaryFunction<D: Dimension> {
+    pub base: BaseFunction,
+    pub tensor_x: (Tensor<D>, Option<bool>),
+}
 
-// use ndarray::ShapeBuilder;
+pub struct BinaryFunction<D: Dimension> {
+    pub base: BaseFunction,
+    pub tensor_x: (Tensor<D>, Option<bool>),
+    pub tensor_y: (Tensor<D>, Option<bool>),
+}
 
-// use crate::{lazy_buffer::LazyBuffer, ops::Device, tensor::Tensor};
+pub struct TernaryFunction<D: Dimension> {
+    pub base: BaseFunction,
+    pub tensor_x: (Tensor<D>, Option<bool>),
+    pub tensor_y: (Tensor<D>, Option<bool>),
+    pub tensor_z: (Tensor<D>, Option<bool>),
+}
 
-// pub trait UnaryFunctionForward {
-//     fn forward(&self, x: LazyBuffer) -> LazyBuffer;
-// }
+pub trait Function1<D: Dimension> {
+    fn forward(&mut self, x: LazyBuffer<D>) -> LazyBuffer<D>;
+    fn backward(&self, grad_output: LazyBuffer<D>) -> LazyBuffer<D>;
 
-// pub trait UnaryFunctionBackward {
-//     fn backward(&self, grad_output: LazyBuffer) -> LazyBuffer;
-// }
+    fn requires_grad(&self) -> bool;
+}
 
-// pub trait ReduceFunctionForward<Sh>
-// where
-//     Sh: ShapeBuilder,
-// {
-//     fn forward(&self, x: LazyBuffer, new_shape: Sh) -> LazyBuffer;
-// }
+pub trait Applicable1<D: Dimension> {
+    fn apply(f: impl Function1<D>, x: Tensor<D>) -> Tensor<D>;
+}
 
-// pub trait ReduceFunctionBackward {
-//     fn backward(&self, grad_output: LazyBuffer) -> LazyBuffer;
-// }
+impl<D: Dimension> Applicable1<D> for UnaryFunction<D> {
+    fn apply(mut f: impl Function1<D>, x: Tensor<D>) -> Tensor<D> {
+        let ret = Tensor::new(f.forward(x.lazy_data));
+        if f.requires_grad() {
+            // ret.ctx = f;
+        }
+        ret
+    }
+}
 
-// pub trait BinaryFunctionForward {
-//     fn forward(&self, x: LazyBuffer, y: LazyBuffer) -> LazyBuffer;
-// }
+impl BaseFunction {
+    fn new_unary<D>(device: Device, tensor_x: Tensor<D>) -> UnaryFunction<D>
+    where
+        D: Dimension,
+    {
+        let needs_input_grad_x = tensor_x.requires_grad;
 
-// pub trait BinaryFunctionBackward {
-//     fn backward(&self, grad_output: LazyBuffer) -> (Option<LazyBuffer>, Option<LazyBuffer>);
-// }
+        let any_true = needs_input_grad_x == Some(true);
+        let any_none = needs_input_grad_x.is_none();
 
-// pub trait TernaryFunctionForward {
-//     fn forward(&self, x: LazyBuffer, y: LazyBuffer, z: LazyBuffer) -> LazyBuffer;
-// }
+        let requires_grad = if any_true {
+            Some(true)
+        } else if any_none {
+            None
+        } else {
+            Some(false)
+        };
 
-// pub trait TernaryFunctionBackward {
-//     fn backward(
-//         &self,
-//         grad_output: LazyBuffer,
-//     ) -> (Option<LazyBuffer>, Option<LazyBuffer>, Option<LazyBuffer>);
-// }
+        UnaryFunction {
+            base: BaseFunction {
+                device,
+                requires_grad,
+            },
+            tensor_x: (tensor_x, needs_input_grad_x),
+        }
+    }
 
-// pub trait UnaryFunction: UnaryFunctionForward + UnaryFunctionBackward {}
-// pub trait BinaryFunction: BinaryFunctionForward + BinaryFunctionBackward {}
-// pub trait TernaryFunction: TernaryFunctionForward + TernaryFunctionBackward {}
+    fn new_binary<D>(device: Device, tensor_x: Tensor<D>, tensor_y: Tensor<D>) -> BinaryFunction<D>
+    where
+        D: Dimension,
+    {
+        let needs_input_grad_x = tensor_x.requires_grad;
+        let needs_input_grad_y = tensor_y.requires_grad;
 
-// pub struct Function {
-//     pub device:Device,
-//     pub needs_input_grad:bool,
-//     pub requires_grad:bool,
-//     pub parents:Option<Vec<Tensor<?,?>>>,
-// }
+        let any_true = needs_input_grad_x == Some(true) || needs_input_grad_y == Some(true);
+        let any_none = needs_input_grad_x.is_none() || needs_input_grad_y.is_none();
 
-// pub struct Function< {
-//     pub device:Device,
-//     pub needs_input_grad:bool,
-//     pub requires_grad:bool,
-//     pub parents:Option<Vec<Tensor<?,?>>>,
-// }
+        let requires_grad = if any_true {
+            Some(true)
+        } else if any_none {
+            None
+        } else {
+            Some(false)
+        };
 
-// impl Function {
-//     fn new(device:Device, tensors:Vec<Tensor<?,?>>) -> Self {
+        BinaryFunction {
+            base: BaseFunction {
+                device,
+                requires_grad,
+            },
+            tensor_x: (tensor_x, needs_input_grad_x),
+            tensor_y: (tensor_y, needs_input_grad_y),
+        }
+    }
 
-//     }
-// }
+    fn new_ternary<D>(
+        device: Device,
+        tensor_x: Tensor<D>,
+        tensor_y: Tensor<D>,
+        tensor_z: Tensor<D>,
+    ) -> TernaryFunction<D>
+    where
+        D: Dimension,
+    {
+        let needs_input_grad_x = tensor_x.requires_grad;
+        let needs_input_grad_y = tensor_y.requires_grad;
+        let needs_input_grad_z = tensor_z.requires_grad;
+
+        let any_true = needs_input_grad_x == Some(true)
+            || needs_input_grad_y == Some(true)
+            || needs_input_grad_z == Some(true);
+        let any_none = needs_input_grad_x.is_none()
+            || needs_input_grad_y.is_none()
+            || needs_input_grad_z.is_none();
+
+        let requires_grad = if any_true {
+            Some(true)
+        } else if any_none {
+            None
+        } else {
+            Some(false)
+        };
+
+        TernaryFunction {
+            base: BaseFunction {
+                device,
+                requires_grad,
+            },
+            tensor_x: (tensor_x, needs_input_grad_x),
+            tensor_y: (tensor_y, needs_input_grad_y),
+            tensor_z: (tensor_z, needs_input_grad_z),
+        }
+    }
+}
+
+// -----------------------------
+struct Contiguous;
+
+impl<D: Dimension> Function1<D> for Contiguous {
+    fn forward(&mut self, x: LazyBuffer<D>) -> LazyBuffer<D> {
+        x.contiguous()
+    }
+
+    fn backward(&self, grad_output: LazyBuffer<D>) -> LazyBuffer<D> {
+        grad_output.contiguous()
+    }
+
+    fn requires_grad(&self) -> bool {
+        true
+    }
+}
+
+struct ContiguousBackward;
+
+impl<D: Dimension> Function1<D> for ContiguousBackward {
+    fn forward(&mut self, x: LazyBuffer<D>) -> LazyBuffer<D> {
+        x
+    }
+
+    fn backward(&self, grad_output: LazyBuffer<D>) -> LazyBuffer<D> {
+        grad_output.contiguous()
+    }
+
+    fn requires_grad(&self) -> bool {
+        true
+    }
+}
+
+struct Zero;
+
+impl<D: Dimension> Function1<D> for Zero {
+    fn forward(&mut self, x: LazyBuffer<D>) -> LazyBuffer<D> {
+        x.const_(0.0)
+    }
+
+    fn backward(&self, grad_output: LazyBuffer<D>) -> LazyBuffer<D> {
+        grad_output.const_(0.0)
+    }
+
+    fn requires_grad(&self) -> bool {
+        true
+    }
+}
+
+struct Neg;
+
+impl<D: Dimension> Function1<D> for Neg {
+    fn forward(&mut self, x: LazyBuffer<D>) -> LazyBuffer<D> {
+        x.unary(UnaryOps::Neg)
+    }
+
+    fn backward(&self, grad_output: LazyBuffer<D>) -> LazyBuffer<D> {
+        grad_output.unary(UnaryOps::Neg)
+    }
+
+    fn requires_grad(&self) -> bool {
+        true
+    }
+}
+
+struct Sin<D: Dimension>(Option<LazyBuffer<D>>);
+
+impl<D: Dimension> Function1<D> for Sin<D> {
+    fn forward(&mut self, x: LazyBuffer<D>) -> LazyBuffer<D> {
+        self.0 = Some(x.clone());
+        x.unary(UnaryOps::Sin)
+    }
+
+    fn backward(&self, grad_output: LazyBuffer<D>) -> LazyBuffer<D> {
+        let x = self.0.clone().unwrap();
+        x.const_(f32::PI() / 2.0)
+            .binary(BinaryOps::Sub, &x)
+            .unary(UnaryOps::Sin)
+            .binary(BinaryOps::Mul, &grad_output)
+    }
+
+    fn requires_grad(&self) -> bool {
+        true
+    }
+}
+
+struct Relu<D: Dimension>(Option<LazyBuffer<D>>);
+
+impl<D: Dimension> Function1<D> for Relu<D> {
+    fn forward(&mut self, x: LazyBuffer<D>) -> LazyBuffer<D> {
+        let ret = x.clone().binary(BinaryOps::Max, &x.const_(0.0));
+        self.0 = Some(ret.clone());
+        ret
+    }
+
+    fn backward(&self, grad_output: LazyBuffer<D>) -> LazyBuffer<D> {
+        let x = self.0.clone().unwrap();
+        x.clone()
+            .const_(0.0)
+            .binary(BinaryOps::CmpLt, &x)
+            .binary(BinaryOps::Mul, &grad_output)
+    }
+
+    fn requires_grad(&self) -> bool {
+        true
+    }
+}
